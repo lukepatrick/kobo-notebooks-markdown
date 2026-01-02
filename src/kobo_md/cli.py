@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
 from kobo_md import __version__
@@ -152,6 +153,59 @@ def list_notebooks() -> None:
         raise typer.Exit(1) from e
 
 
+def _show_write_preview(
+    notebook: "Notebook",
+    filepath: Path,
+    console: Console,
+) -> None:
+    """Show a preview of what will be written."""
+    from kobo_md.obsidian import notebook_to_markdown
+
+    content = notebook_to_markdown(notebook)
+    preview_lines = content.split("\n")[:20]
+    preview = "\n".join(preview_lines)
+    if len(content.split("\n")) > 20:
+        preview += "\n[...]"
+
+    console.print(Panel(
+        preview,
+        title=f"Preview: {filepath.name}",
+        subtitle=f"Full path: {filepath}",
+    ))
+
+
+def _validate_output_path(output_dir: Path, vault_path: Path) -> bool:
+    """Validate that output directory is within vault or a safe location."""
+    try:
+        output_resolved = output_dir.resolve()
+        vault_resolved = vault_path.resolve()
+        # Check if output is within vault
+        return output_resolved.is_relative_to(vault_resolved)
+    except (ValueError, RuntimeError):
+        return False
+
+
+def _show_daily_note_preview(
+    notebook: "Notebook",
+    daily_note_path: Path,
+    console: Console,
+) -> None:
+    """Show a preview of what will be appended to daily note."""
+    content_to_append = f"### {notebook.metadata.display_name}\n\n{notebook.full_text}"
+    preview_lines = content_to_append.split("\n")[:15]
+    preview = "\n".join(preview_lines)
+    if len(content_to_append.split("\n")) > 15:
+        preview += "\n[...]"
+
+    exists_msg = "[green](exists)[/green]" if daily_note_path.exists() else "[yellow](will be created)[/yellow]"
+
+    console.print(Panel(
+        preview,
+        title=f"Will append to: {daily_note_path.name} {exists_msg}",
+        subtitle=f"Full path: {daily_note_path}",
+    ))
+
+
 @app.command("fetch")
 def fetch_notebook(
     notebook_id: Annotated[
@@ -178,6 +232,22 @@ def fetch_notebook(
         str | None,
         typer.Option("--provider", "-p", help="AI provider: 'anthropic', 'openai', or 'claude-code'."),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Preview without writing to vault."),
+    ] = False,
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", "-c", help="Ask for confirmation before each write."),
+    ] = False,
+    daily_notes: Annotated[
+        bool,
+        typer.Option("--daily-notes", "-d", help="Append to today's daily note instead of creating files."),
+    ] = False,
+    daily_notes_pattern: Annotated[
+        str | None,
+        typer.Option("--daily-pattern", help="Daily notes path pattern (e.g., 'Daily/{year}/{month_name}/{day}.md')."),
+    ] = None,
 ) -> None:
     """Fetch and export notebooks to markdown.
 
@@ -185,6 +255,10 @@ def fetch_notebook(
 
     Use --ai to enable AI-powered text cleanup and wikilink suggestions.
     Requires ANTHROPIC_API_KEY, OPENAI_API_KEY, or Claude Code CLI installed.
+
+    Use --dry-run to preview without writing, or --confirm for interactive approval.
+
+    Use --daily-notes to append notebook content to today's daily note.
     """
     if not notebook_id and not all_notebooks:
         console.print("[red]Error:[/red] Specify a notebook ID or use --all")
@@ -192,6 +266,9 @@ def fetch_notebook(
 
     settings = get_settings()
     output_dir = output or settings.output_path
+
+    # Get daily notes path pattern
+    dn_pattern = daily_notes_pattern or settings.daily_notes_pattern
 
     # Determine AI settings
     use_ai = ai if ai is not None else settings.ai_enabled
@@ -255,42 +332,137 @@ def fetch_notebook(
 
             console.print(f"[blue]Fetching {len(to_fetch)} notebook(s)...[/blue]")
 
-            for nb_info in to_fetch:
-                console.print(f"  Fetching: {nb_info.title}")
+            # Use progress bar for multiple notebooks
+            use_progress = len(to_fetch) > 1 and not dry_run and not confirm
 
-                try:
-                    # Get full metadata
-                    metadata = client.get_notebook_metadata(nb_info.id)
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+                disable=not use_progress,
+            ) as progress:
+                task = progress.add_task("Processing notebooks...", total=len(to_fetch))
 
-                    if not metadata.is_advanced:
-                        console.print("    [yellow]Skipping (not an Advanced notebook)[/yellow]")
-                        continue
+                for nb_info in to_fetch:
+                    progress.update(task, description=f"Fetching: {nb_info.title}")
+                    if not use_progress:
+                        console.print(f"  Fetching: {nb_info.title}")
 
-                    # Get all pages
-                    pages = client.get_all_notebook_pages(nb_info.id, metadata)
-
-                    # Create notebook object
-                    notebook = Notebook(metadata=metadata, pages=pages)
-
-                    # Process with AI if enabled
-                    if use_ai and processor:
-                        console.print("    [blue]Processing with AI...[/blue]")
-                        try:
-                            notebook = processor.process_notebook(notebook)
-                            console.print("    [green]AI processing complete[/green]")
-                        except Exception as e:
-                            console.print(f"    [yellow]AI processing failed: {e}[/yellow]")
-                            console.print("    [yellow]Saving without AI processing[/yellow]")
-
-                    # Write to file
                     try:
-                        filepath = write_notebook(notebook, output_dir, overwrite=overwrite)
-                        console.print(f"    [green]Saved:[/green] {filepath}")
-                    except FileExistsError:
-                        console.print("    [yellow]Skipped (already exists, use -f to overwrite)[/yellow]")
+                        # Get full metadata
+                        metadata = client.get_notebook_metadata(nb_info.id)
 
-                except KoboClientError as e:
-                    console.print(f"    [red]Error:[/red] {e}")
+                        if not metadata.is_advanced:
+                            console.print("    [yellow]Skipping (not an Advanced notebook)[/yellow]")
+                            progress.advance(task)
+                            continue
+
+                        # Get all pages
+                        pages = client.get_all_notebook_pages(nb_info.id, metadata)
+
+                        # Create notebook object
+                        notebook = Notebook(metadata=metadata, pages=pages)
+
+                        # Process with AI if enabled
+                        if use_ai and processor:
+                            if not use_progress:
+                                console.print("    [blue]Processing with AI...[/blue]")
+                            try:
+                                notebook = processor.process_notebook(notebook)
+                                if not use_progress:
+                                    console.print("    [green]AI processing complete[/green]")
+                            except Exception as e:
+                                console.print(f"    [yellow]AI processing failed: {e}[/yellow]")
+                                console.print("    [yellow]Saving without AI processing[/yellow]")
+
+                        # Handle daily notes mode
+                        if daily_notes:
+                            from kobo_md.obsidian.writer import (
+                                append_to_daily_note,
+                                get_daily_note_path,
+                            )
+
+                            daily_note_path = get_daily_note_path(
+                                settings.vault_path, dn_pattern
+                            )
+
+                            # Validate daily note path is within vault
+                            if not _validate_output_path(
+                                daily_note_path.parent, settings.vault_path
+                            ):
+                                console.print(
+                                    f"    [red]Error:[/red] Daily note path {daily_note_path} "
+                                    f"is outside vault {settings.vault_path}"
+                                )
+                                progress.advance(task)
+                                continue
+
+                            # Handle dry-run and confirm for daily notes
+                            if dry_run or confirm:
+                                _show_daily_note_preview(notebook, daily_note_path, console)
+
+                            if dry_run:
+                                console.print("    [yellow]Dry run - not writing[/yellow]")
+                                progress.advance(task)
+                                continue
+
+                            if confirm:
+                                if not typer.confirm(
+                                    f"    Append to {daily_note_path.name}?"
+                                ):
+                                    console.print("    [yellow]Skipped by user[/yellow]")
+                                    progress.advance(task)
+                                    continue
+
+                            # Append to daily note
+                            append_to_daily_note(notebook, daily_note_path)
+                            if not use_progress:
+                                console.print(
+                                    f"    [green]Appended to:[/green] {daily_note_path}"
+                                )
+                        else:
+                            # Standard file output mode
+                            from kobo_md.obsidian.writer import sanitize_filename
+
+                            filename = sanitize_filename(notebook.metadata.display_name) + ".md"
+                            filepath = output_dir / filename
+
+                            # Validate output path is within vault
+                            if not _validate_output_path(output_dir, settings.vault_path):
+                                console.print(
+                                    f"    [yellow]Warning:[/yellow] Output path {output_dir} "
+                                    f"is outside vault {settings.vault_path}"
+                                )
+
+                            # Handle dry-run and confirm modes
+                            if dry_run or confirm:
+                                _show_write_preview(notebook, filepath, console)
+
+                            if dry_run:
+                                console.print("    [yellow]Dry run - not writing[/yellow]")
+                                progress.advance(task)
+                                continue
+
+                            if confirm:
+                                if not typer.confirm(f"    Write to {filepath}?"):
+                                    console.print("    [yellow]Skipped by user[/yellow]")
+                                    progress.advance(task)
+                                    continue
+
+                            # Write to file
+                            try:
+                                filepath = write_notebook(notebook, output_dir, overwrite=overwrite)
+                                if not use_progress:
+                                    console.print(f"    [green]Saved:[/green] {filepath}")
+                            except FileExistsError:
+                                console.print("    [yellow]Skipped (already exists, use -f to overwrite)[/yellow]")
+
+                    except KoboClientError as e:
+                        console.print(f"    [red]Error:[/red] {e}")
+
+                    progress.advance(task)
 
             console.print("[green]Done![/green]")
 

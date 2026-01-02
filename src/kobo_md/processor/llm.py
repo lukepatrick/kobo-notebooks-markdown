@@ -3,10 +3,54 @@
 import json
 import os
 import subprocess
+import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel
+
+
+T = TypeVar("T")
+
+
+def _retry_api_call(
+    func: Callable[[], T],
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+) -> T:
+    """Retry an API call with exponential backoff.
+
+    Args:
+        func: Function to call.
+        max_retries: Maximum retry attempts.
+        base_delay: Initial delay between retries.
+
+    Returns:
+        Result of the function.
+
+    Raises:
+        Exception: The last exception if all retries fail.
+    """
+    last_error: Exception | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            return func()
+        except Exception as e:
+            error_str = str(e).lower()
+            # Retry on rate limits, server errors, timeouts
+            if any(term in error_str for term in ["rate", "limit", "429", "500", "502", "503", "timeout", "overloaded"]):
+                last_error = e
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    time.sleep(delay)
+                continue
+            # Don't retry other errors (auth, bad request, etc.)
+            raise
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Retry failed without error")
 
 
 class ProcessedText(BaseModel):
@@ -83,13 +127,15 @@ class AnthropicProvider(LLMProvider):
         system_prompt = self._build_system_prompt(existing_notes, existing_tags)
         user_prompt = self._build_user_prompt(text)
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+        def do_request() -> Any:
+            return self.client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
 
+        response = _retry_api_call(do_request)
         return self._parse_response(response.content[0].text, text)
 
     def _build_system_prompt(
@@ -240,15 +286,17 @@ class OpenAIProvider(LLMProvider):
         system_prompt = self._build_system_prompt(existing_notes, existing_tags)
         user_prompt = self._build_user_prompt(text)
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            max_tokens=4096,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
+        def do_request() -> Any:
+            return self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=4096,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
 
+        response = _retry_api_call(do_request)
         return self._parse_response(response.choices[0].message.content or "", text)
 
     # Reuse the same prompt building and parsing logic

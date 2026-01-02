@@ -1,5 +1,7 @@
 """Kobo web portal API client."""
 
+import time
+from typing import Callable, TypeVar
 from urllib.parse import quote
 
 import httpx
@@ -19,6 +21,50 @@ class KoboClientError(Exception):
     pass
 
 
+T = TypeVar("T")
+
+
+def _retry_request(
+    func: Callable[[], T],
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+) -> T:
+    """Retry a request with exponential backoff.
+
+    Args:
+        func: Function to call.
+        max_retries: Maximum number of retry attempts.
+        base_delay: Initial delay between retries in seconds.
+        max_delay: Maximum delay between retries.
+
+    Returns:
+        Result of the function call.
+
+    Raises:
+        KoboClientError: If all retries fail.
+    """
+    last_error: Exception | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            return func()
+        except httpx.HTTPStatusError as e:
+            # Don't retry client errors (4xx) except 429 (rate limit)
+            if 400 <= e.response.status_code < 500 and e.response.status_code != 429:
+                raise
+            last_error = e
+        except httpx.RequestError as e:
+            # Network errors are retryable
+            last_error = e
+
+        if attempt < max_retries:
+            delay = min(base_delay * (2**attempt), max_delay)
+            time.sleep(delay)
+
+    raise KoboClientError(f"Request failed after {max_retries + 1} attempts: {last_error}")
+
+
 class KoboClient:
     """Client for Kobo web portal API."""
 
@@ -30,6 +76,7 @@ class KoboClient:
         region: str = "us",
         language: str = "en",
         timeout: float = 30.0,
+        max_retries: int = 3,
     ):
         """Initialize the Kobo client.
 
@@ -38,11 +85,13 @@ class KoboClient:
             region: Kobo region (e.g., "us", "ca", "uk").
             language: Language code (e.g., "en").
             timeout: Request timeout in seconds.
+            max_retries: Maximum retry attempts for failed requests.
         """
         self.cookies = cookies
         self.region = region
         self.language = language
         self.timeout = timeout
+        self.max_retries = max_retries
         self._client: httpx.Client | None = None
 
     @property
@@ -98,17 +147,19 @@ class KoboClient:
         """
         url = f"{self._path_prefix}/library/notebooks"
 
-        try:
+        def do_request() -> httpx.Response:
             response = self.client.get(url)
             response.raise_for_status()
+            return response
+
+        try:
+            response = _retry_request(do_request, max_retries=self.max_retries)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
                 raise KoboClientError(
                     "Authentication failed. Please refresh your browser cookies."
                 ) from e
             raise KoboClientError(f"Failed to list notebooks: {e}") from e
-        except httpx.RequestError as e:
-            raise KoboClientError(f"Request failed: {e}") from e
 
         return parse_notebook_list_html(response.text)
 
@@ -127,13 +178,15 @@ class KoboClient:
         url = f"{self._path_prefix}/Library/GetNotebookMetadata"
         params = {"notebookId": notebook_id}
 
-        try:
+        def do_request() -> httpx.Response:
             response = self.client.get(url, params=params)
             response.raise_for_status()
+            return response
+
+        try:
+            response = _retry_request(do_request, max_retries=self.max_retries)
         except httpx.HTTPStatusError as e:
             raise KoboClientError(f"Failed to get notebook metadata: {e}") from e
-        except httpx.RequestError as e:
-            raise KoboClientError(f"Request failed: {e}") from e
 
         return parse_notebook_metadata(response.json())
 
@@ -162,13 +215,15 @@ class KoboClient:
             "etag": encoded_etag,
         }
 
-        try:
+        def do_request() -> httpx.Response:
             response = self.client.get(url, params=params)
             response.raise_for_status()
+            return response
+
+        try:
+            response = _retry_request(do_request, max_retries=self.max_retries)
         except httpx.HTTPStatusError as e:
             raise KoboClientError(f"Failed to get notebook page: {e}") from e
-        except httpx.RequestError as e:
-            raise KoboClientError(f"Request failed: {e}") from e
 
         return parse_notebook_content(response.json(), page)
 
@@ -217,12 +272,14 @@ class KoboClient:
             "etag": encoded_etag,
         }
 
-        try:
+        def do_request() -> httpx.Response:
             response = self.client.get(url, params=params)
             response.raise_for_status()
+            return response
+
+        try:
+            response = _retry_request(do_request, max_retries=self.max_retries)
         except httpx.HTTPStatusError as e:
             raise KoboClientError(f"Failed to get notebook thumbnail: {e}") from e
-        except httpx.RequestError as e:
-            raise KoboClientError(f"Request failed: {e}") from e
 
         return response.content
