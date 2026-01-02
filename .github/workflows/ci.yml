@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  # Disable Rich/Typer colors for consistent test output
+  NO_COLOR: "1"
+  TERM: dumb
+
 jobs:
   test:
     runs-on: ubuntu-latest
