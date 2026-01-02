@@ -1,3 +1,8 @@
 """Configuration management for kobo-md."""
 
-__all__: list[str] = []
+from kobo_md.config.settings import Settings, get_settings
+
+__all__ = [
+    "Settings",
+    "get_settings",
+]
