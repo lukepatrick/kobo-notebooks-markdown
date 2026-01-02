@@ -1,5 +1,12 @@
 """Pytest configuration and shared fixtures for kobo-md tests."""
 
+# Disable Rich colors for consistent test output across environments
+# MUST be set before any imports that touch Rich/Typer
+import os
+
+os.environ["NO_COLOR"] = "1"
+os.environ["TERM"] = "dumb"
+
 from collections.abc import Generator
 from pathlib import Path
 
