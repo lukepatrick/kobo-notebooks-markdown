@@ -11,14 +11,18 @@ from kobo_md.kobo.models import Notebook, NotebookMetadata
 def sanitize_filename(name: str) -> str:
     """Sanitize a string for use as a filename.
 
+    Prevents path traversal attacks and ensures the result is a safe filename.
+
     Args:
         name: Original name.
 
     Returns:
         Safe filename.
     """
-    # Replace problematic characters
+    # Replace path separators to prevent directory traversal
     name = re.sub(r'[<>:"/\\|?*]', "-", name)
+    # Explicitly remove path traversal sequences (defense in depth)
+    name = name.replace("..", "")
     # Remove leading/trailing whitespace and dots
     name = name.strip(". ")
     # Limit length

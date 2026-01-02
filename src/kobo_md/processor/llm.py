@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import time
 from abc import ABC, abstractmethod
@@ -312,12 +313,25 @@ class ClaudeCodeProvider(LLMProvider):
     Claude Code authentication instead of requiring a separate API key.
     """
 
+    # Allowed model name pattern: alphanumeric, hyphens, underscores, dots, colons
+    # Examples: claude-3-opus, claude-sonnet-4-20250514, gpt-4o
+    _MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$")
+
     def __init__(self, model: str | None = None):
         """Initialize the Claude Code provider.
 
         Args:
             model: Model to use (optional, uses Claude Code default if not specified).
+
+        Raises:
+            ValueError: If model name contains invalid characters.
         """
+        if model is not None:
+            if not self._MODEL_PATTERN.match(model):
+                raise ValueError(
+                    f"Invalid model name: {model!r}. "
+                    "Model names must be alphanumeric with hyphens, underscores, dots, or colons."
+                )
         self.model = model
         self._verify_claude_cli()
 
