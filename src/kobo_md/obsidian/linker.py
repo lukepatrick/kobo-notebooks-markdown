@@ -1,4 +1,21 @@
-"""Wikilink suggestion and insertion for Obsidian notes."""
+"""Wikilink suggestion and insertion for Obsidian notes.
+
+This module handles the core linking functionality:
+1. Inserting [[wikilinks]] into plain text
+2. Suggesting links based on vault contents
+3. Classifying links as existing or new
+
+The linking process:
+1. LLM or heuristics suggest terms to link (e.g., "Machine Learning")
+2. Terms are matched against existing vault notes
+3. Wikilinks are inserted into the text at appropriate locations
+4. Results track which links are new vs existing
+
+Key design decisions:
+- Only the first occurrence of each term is linked (to avoid over-linking)
+- Longer terms are matched first (to prevent partial matches)
+- Matching is case-insensitive but preserves original case in output
+"""
 
 import re
 from pathlib import Path
@@ -9,52 +26,83 @@ from kobo_md.obsidian.vault import VaultIndex, scan_vault
 
 
 class LinkSuggestion(BaseModel):
-    """A suggested wikilink."""
+    """A suggested wikilink with metadata.
 
-    text: str  # The text to link
-    target: str  # The link target (may be same as text)
-    existing: bool  # Whether target exists in vault
+    Attributes:
+        text: The text in the document to convert to a link.
+        target: The note to link to (may differ from text for aliases).
+        existing: Whether the target note already exists in the vault.
+        confidence: Confidence score (0-1) for AI-generated suggestions.
+    """
+
+    text: str
+    target: str
+    existing: bool
     confidence: float = 1.0
 
 
 class LinkedText(BaseModel):
-    """Text with wikilinks inserted."""
+    """Result of processing text with wikilink insertion.
+
+    Contains the original and modified text, plus metadata about
+    what links were added.
+
+    Attributes:
+        original_text: The input text before processing.
+        linked_text: The text with [[wikilinks]] inserted.
+        suggestions: All link suggestions that were processed.
+        new_links: Links pointing to notes that don't exist yet.
+        existing_links: Links pointing to existing vault notes.
+    """
 
     original_text: str
     linked_text: str
     suggestions: list[LinkSuggestion]
-    new_links: list[str]  # Links to notes that don't exist yet
-    existing_links: list[str]  # Links to existing notes
+    new_links: list[str]
+    existing_links: list[str]
 
 
 def insert_wikilinks(text: str, links: list[str]) -> str:
-    """Insert wikilinks into text for specified terms.
+    """Insert [[wikilinks]] into text for specified terms.
+
+    Converts plain text terms to Obsidian wikilinks. Uses smart matching
+    to avoid issues with overlapping terms and existing links.
+
+    Algorithm:
+    1. Sort links by length (longest first) to prevent partial matches
+       e.g., "Machine Learning" before "Machine"
+    2. For each term, find first occurrence not already in a wikilink
+    3. Replace only first occurrence to avoid over-linking
 
     Args:
-        text: Original text.
+        text: Original text content.
         links: List of terms to convert to [[wikilinks]].
 
     Returns:
-        Text with wikilinks inserted.
+        Text with wikilinks inserted. Original text returned if
+        no links can be inserted.
     """
     result = text
 
-    # Sort by length (longest first) to avoid partial replacements
+    # Sort longest-first to prevent "Machine" from matching before "Machine Learning"
     sorted_links = sorted(links, key=len, reverse=True)
 
     for link in sorted_links:
         if not link:
             continue
 
-        # Skip if already a wikilink
+        # Skip if this exact link already exists
         if f"[[{link}]]" in result:
             continue
 
-        # Create pattern that matches the term but not inside existing wikilinks
-        # Use word boundaries for cleaner matching
+        # Pattern: word boundaries, not already inside [[brackets]]
+        # (?<!\[\[) = not preceded by [[
+        # \b = word boundary
+        # (?!\]\]) = not followed by ]]
         pattern = rf"(?<!\[\[)\b({re.escape(link)})\b(?!\]\])"
 
-        # Replace first occurrence only to avoid over-linking
+        # Replace only first occurrence to avoid over-linking
+        # (linking every instance of "Python" would be noisy)
         result = re.sub(pattern, rf"[[\1]]", result, count=1, flags=re.IGNORECASE)
 
     return result
@@ -67,38 +115,43 @@ def suggest_links_from_vault(
 ) -> list[LinkSuggestion]:
     """Suggest wikilinks based on existing vault notes.
 
+    Scans the text for mentions of existing note titles or their aliases.
+    This enables automatic linking to related notes without AI processing.
+
     Args:
-        text: Text to analyze.
-        vault_index: Index of the vault.
-        min_word_length: Minimum word length to consider.
+        text: Text to analyze for potential links.
+        vault_index: Index of the vault (from scan_vault).
+        min_word_length: Minimum term length to consider (filters noise).
 
     Returns:
-        List of link suggestions.
+        List of LinkSuggestion objects for terms found in the text
+        that match existing notes. Suggestions have existing=True
+        since they match vault contents.
     """
     suggestions: list[LinkSuggestion] = []
     text_lower = text.lower()
 
-    # Check each note title
+    # Check each note title against the text
     for title in vault_index.note_titles:
         if len(title) < min_word_length:
             continue
 
         title_lower = title.lower()
 
-        # Check if title appears in text (case-insensitive)
+        # Case-insensitive check for title in text
         if title_lower in text_lower:
-            # Verify it's not already linked
+            # Skip if already linked
             if f"[[{title}]]" not in text and f"[[{title_lower}]]" not in text.lower():
                 suggestions.append(
                     LinkSuggestion(
                         text=title,
                         target=title,
                         existing=True,
-                        confidence=0.9,
+                        confidence=0.9,  # High confidence for exact title match
                     )
                 )
 
-    # Check aliases
+    # Check aliases - link to the actual note, not the alias
     for title, aliases in vault_index.aliases.items():
         for alias in aliases:
             if len(alias) < min_word_length:
@@ -106,13 +159,14 @@ def suggest_links_from_vault(
 
             alias_lower = alias.lower()
             if alias_lower in text_lower:
+                # Check both alias and target aren't already linked
                 if f"[[{alias}]]" not in text and f"[[{title}]]" not in text:
                     suggestions.append(
                         LinkSuggestion(
                             text=alias,
-                            target=title,  # Link to the actual note
+                            target=title,  # Link resolves to the actual note
                             existing=True,
-                            confidence=0.85,
+                            confidence=0.85,  # Slightly lower for alias match
                         )
                     )
 
@@ -126,19 +180,35 @@ def process_text_with_links(
 ) -> LinkedText:
     """Process text by inserting suggested wikilinks.
 
+    This is the main entry point for processing text with link suggestions.
+    It handles the full pipeline:
+    1. Classify each suggested link as new or existing
+    2. Resolve aliases to their target notes
+    3. Insert wikilinks into the text
+    4. Return comprehensive results for downstream processing
+
+    The classification against vault_index enables features like:
+    - Highlighting which links will create new notes
+    - Using proper note titles for case-insensitive matches
+    - Resolving aliases to actual note names
+
     Args:
-        text: Original text.
-        suggested_links: Links suggested by LLM or heuristics.
+        text: Original text content to process.
+        suggested_links: Links suggested by LLM or heuristics. These are
+            the terms that should become [[wikilinks]].
         vault_index: Optional vault index for matching existing notes.
+            If None, all links are treated as new.
 
     Returns:
-        LinkedText with results.
+        LinkedText containing the processed text, list of suggestions
+        with metadata, and categorized new/existing links.
     """
     suggestions: list[LinkSuggestion] = []
     new_links: list[str] = []
     existing_links: list[str] = []
 
-    # Classify each suggested link
+    # Classify each suggested link by checking against vault contents
+    # Priority: exact title match > alias match > case-insensitive title match
     for link in suggested_links:
         if not link:
             continue
@@ -147,24 +217,26 @@ def process_text_with_links(
         target = link
 
         if vault_index:
-            # Check if it matches an existing note
+            # Step 1: Check for exact title match (case-sensitive)
             if link in vault_index.note_titles:
                 existing = True
             else:
-                # Check aliases
+                # Step 2: Check if link matches any note's aliases
+                # If so, resolve to the actual note title for proper linking
                 for title, aliases in vault_index.aliases.items():
                     if link.lower() in [a.lower() for a in aliases]:
                         existing = True
                         target = title
                         break
 
-                # Fuzzy match on titles
+                # Step 3: Case-insensitive title match (fuzzy)
+                # Handles "machine learning" matching "Machine Learning"
                 if not existing:
                     link_lower = link.lower()
                     for title in vault_index.note_titles:
                         if title.lower() == link_lower:
                             existing = True
-                            target = title
+                            target = title  # Use the properly-cased title
                             break
 
         suggestions.append(
@@ -200,24 +272,37 @@ def auto_link_from_vault(
 ) -> LinkedText:
     """Automatically add wikilinks based on vault contents.
 
-    This is a simpler alternative to LLM-based linking that just
-    looks for exact matches with existing note titles.
+    This is a simpler, non-AI alternative to LLM-based linking. It scans
+    the text for mentions of existing note titles and aliases, then
+    converts those mentions to wikilinks.
+
+    Use cases:
+    - Quick linking without API costs
+    - Offline operation
+    - Integration with existing vault content
+
+    The function scans the vault on each call. For repeated operations,
+    consider using suggest_links_from_vault() with a cached VaultIndex
+    for better performance.
 
     Args:
-        text: Text to process.
-        vault_path: Path to the Obsidian vault.
-        exclude_dirs: Directories to exclude from scanning.
+        text: Text to process for potential links.
+        vault_path: Path to the Obsidian vault root directory.
+        exclude_dirs: Directories to exclude from scanning
+            (default: .obsidian, .git, .trash, node_modules).
 
     Returns:
-        LinkedText with auto-linked content.
+        LinkedText with wikilinks inserted. All links are marked as
+        existing since they're derived from vault contents.
     """
-    # Scan the vault
+    # Build index of all notes, tags, and aliases in the vault
     index = scan_vault(vault_path, exclude_dirs)
 
-    # Find suggestions
+    # Find note titles and aliases that appear in the text
     suggestions = suggest_links_from_vault(text, index)
 
-    # Process and return
+    # Convert suggestions to wikilinks and build result
+    # All links are existing since they came from vault contents
     links = [s.text for s in suggestions]
     linked_text = insert_wikilinks(text, links)
 
@@ -225,6 +310,6 @@ def auto_link_from_vault(
         original_text=text,
         linked_text=linked_text,
         suggestions=suggestions,
-        new_links=[],
+        new_links=[],  # No new links - all matched existing notes
         existing_links=[s.target for s in suggestions],
     )
