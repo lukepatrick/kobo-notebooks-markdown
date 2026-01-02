@@ -346,8 +346,8 @@ If you encounter CAPTCHA:
 
 Once you've completed this investigation:
 
-1. Share the `api-findings.md` or cURL commands with me
-2. I'll implement the endpoints in `src/kobo_md/kobo/client.py`
-3. We'll set up cookie extraction in `src/kobo_md/auth/cookies.py`
+1. Document findings in `docs/api-findings.md`
+2. Implement the endpoints in `src/kobo_md/kobo/client.py`
+3. Set up cookie extraction in `src/kobo_md/auth/cookies.py`
 
-If you hit any blockers during investigation, let me know and we can adjust the approach.
+See `docs/api-findings.md` for an example of documented API discoveries.
