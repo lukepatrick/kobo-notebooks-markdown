@@ -53,7 +53,7 @@ def test_fetch_requires_notebook_id_or_all() -> None:
 
 def test_fetch_help() -> None:
     """Test fetch command help shows all options."""
-    result = runner.invoke(app, ["fetch", "--help"])
+    result = runner.invoke(app, ["fetch", "--help"], env={"NO_COLOR": "1"})
     assert result.exit_code == 0
     assert "--all" in result.stdout
     assert "--ai" in result.stdout
@@ -64,7 +64,7 @@ def test_fetch_help() -> None:
 
 def test_auth_login_help() -> None:
     """Test auth login command help."""
-    result = runner.invoke(app, ["auth", "login", "--help"])
+    result = runner.invoke(app, ["auth", "login", "--help"], env={"NO_COLOR": "1"})
     assert result.exit_code == 0
     assert "--browser" in result.stdout
 
@@ -96,7 +96,7 @@ def test_process_file_not_found() -> None:
 
 def test_fetch_daily_notes_option() -> None:
     """Test fetch command help shows daily-notes option."""
-    result = runner.invoke(app, ["fetch", "--help"])
+    result = runner.invoke(app, ["fetch", "--help"], env={"NO_COLOR": "1"})
     assert result.exit_code == 0
     assert "--daily-notes" in result.stdout
     assert "--daily-pattern" in result.stdout
