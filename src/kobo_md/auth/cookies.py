@@ -1,9 +1,9 @@
 """Browser cookie extraction for Kobo authentication."""
 
+import contextlib
 import json
 import os
 import stat
-import sqlite3
 from http.cookiejar import CookieJar
 from pathlib import Path
 
@@ -165,10 +165,9 @@ def save_cookies(cookies: KoboCookies, path: Path) -> None:
     """
     # Create parent directory with restricted permissions (0700)
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
+    # Best effort on systems that don't support chmod
+    with contextlib.suppress(OSError):
         os.chmod(path.parent, stat.S_IRWXU)  # 0700: owner rwx only
-    except OSError:
-        pass  # Best effort on systems that don't support chmod
 
     # Write file with restricted permissions
     # Use atomic write pattern: write to temp, then rename
@@ -181,10 +180,8 @@ def save_cookies(cookies: KoboCookies, path: Path) -> None:
     except OSError:
         # Fallback for systems where chmod fails
         path.write_text(cookies.model_dump_json(indent=2))
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
     finally:
         # Clean up temp file if it still exists
         if temp_path.exists():

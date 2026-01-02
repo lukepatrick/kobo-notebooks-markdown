@@ -1,7 +1,7 @@
 """Tests for the processor module."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -56,7 +56,7 @@ class TestGetLLMProvider:
 class TestNotebookProcessor:
     """Tests for NotebookProcessor."""
 
-    def test_process_without_ai(self, tmp_path: Path) -> None:
+    def test_process_without_ai(self, tmp_path: Path) -> None:  # noqa: ARG002
         """Test processing without AI enabled."""
         processor = NotebookProcessor(
             vault_path=None,

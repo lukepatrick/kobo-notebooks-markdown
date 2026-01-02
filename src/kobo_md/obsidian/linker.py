@@ -103,7 +103,7 @@ def insert_wikilinks(text: str, links: list[str]) -> str:
 
         # Replace only first occurrence to avoid over-linking
         # (linking every instance of "Python" would be noisy)
-        result = re.sub(pattern, rf"[[\1]]", result, count=1, flags=re.IGNORECASE)
+        result = re.sub(pattern, r"[[\1]]", result, count=1, flags=re.IGNORECASE)
 
     return result
 
@@ -138,18 +138,20 @@ def suggest_links_from_vault(
 
         title_lower = title.lower()
 
-        # Case-insensitive check for title in text
-        if title_lower in text_lower:
-            # Skip if already linked
-            if f"[[{title}]]" not in text and f"[[{title_lower}]]" not in text.lower():
-                suggestions.append(
-                    LinkSuggestion(
-                        text=title,
-                        target=title,
-                        existing=True,
-                        confidence=0.9,  # High confidence for exact title match
-                    )
+        # Case-insensitive check for title in text, skip if already linked
+        if (
+            title_lower in text_lower
+            and f"[[{title}]]" not in text
+            and f"[[{title_lower}]]" not in text.lower()
+        ):
+            suggestions.append(
+                LinkSuggestion(
+                    text=title,
+                    target=title,
+                    existing=True,
+                    confidence=0.9,  # High confidence for exact title match
                 )
+            )
 
     # Check aliases - link to the actual note, not the alias
     for title, aliases in vault_index.aliases.items():
@@ -158,17 +160,20 @@ def suggest_links_from_vault(
                 continue
 
             alias_lower = alias.lower()
-            if alias_lower in text_lower:
-                # Check both alias and target aren't already linked
-                if f"[[{alias}]]" not in text and f"[[{title}]]" not in text:
-                    suggestions.append(
-                        LinkSuggestion(
-                            text=alias,
-                            target=title,  # Link resolves to the actual note
-                            existing=True,
-                            confidence=0.85,  # Slightly lower for alias match
-                        )
+            # Check alias is in text and not already linked (alias or target)
+            if (
+                alias_lower in text_lower
+                and f"[[{alias}]]" not in text
+                and f"[[{title}]]" not in text
+            ):
+                suggestions.append(
+                    LinkSuggestion(
+                        text=alias,
+                        target=title,  # Link resolves to the actual note
+                        existing=True,
+                        confidence=0.85,  # Slightly lower for alias match
                     )
+                )
 
     return suggestions
 

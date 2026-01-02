@@ -12,7 +12,8 @@ Key features:
 
 import re
 import time
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 from urllib.parse import quote
 
 import httpx

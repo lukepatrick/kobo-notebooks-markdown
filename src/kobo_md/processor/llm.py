@@ -6,10 +6,10 @@ import re
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
-
 
 T = TypeVar("T")
 
@@ -326,12 +326,11 @@ class ClaudeCodeProvider(LLMProvider):
         Raises:
             ValueError: If model name contains invalid characters.
         """
-        if model is not None:
-            if not self._MODEL_PATTERN.match(model):
-                raise ValueError(
-                    f"Invalid model name: {model!r}. "
-                    "Model names must be alphanumeric with hyphens, underscores, dots, or colons."
-                )
+        if model is not None and not self._MODEL_PATTERN.match(model):
+            raise ValueError(
+                f"Invalid model name: {model!r}. "
+                "Model names must be alphanumeric with hyphens, underscores, dots, or colons."
+            )
         self.model = model
         self._verify_claude_cli()
 
@@ -350,9 +349,9 @@ class ClaudeCodeProvider(LLMProvider):
             raise RuntimeError(
                 "Claude Code CLI not found. Install it from: "
                 "https://docs.anthropic.com/en/docs/claude-code"
-            )
+            ) from None
         except subprocess.TimeoutExpired:
-            raise RuntimeError("Claude Code CLI timed out during version check")
+            raise RuntimeError("Claude Code CLI timed out during version check") from None
 
     def process_text(
         self,
@@ -392,7 +391,7 @@ class ClaudeCodeProvider(LLMProvider):
             return self._parse_response(response_text, text)
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError("Claude Code CLI timed out during processing")
+            raise RuntimeError("Claude Code CLI timed out during processing") from None
 
     def _build_prompt(
         self,

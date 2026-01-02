@@ -2,10 +2,7 @@
 
 from pathlib import Path
 
-import pytest
-
 from kobo_md.obsidian.linker import (
-    LinkSuggestion,
     insert_wikilinks,
     process_text_with_links,
     suggest_links_from_vault,

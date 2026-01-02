@@ -6,7 +6,13 @@ from typing import Annotated
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+)
 from rich.table import Table
 
 from kobo_md import __version__
@@ -408,13 +414,12 @@ def fetch_notebook(
                                 progress.advance(task)
                                 continue
 
-                            if confirm:
-                                if not typer.confirm(
-                                    f"    Append to {daily_note_path.name}?"
-                                ):
-                                    console.print("    [yellow]Skipped by user[/yellow]")
-                                    progress.advance(task)
-                                    continue
+                            if confirm and not typer.confirm(
+                                f"    Append to {daily_note_path.name}?"
+                            ):
+                                console.print("    [yellow]Skipped by user[/yellow]")
+                                progress.advance(task)
+                                continue
 
                             # Append to daily note
                             append_to_daily_note(notebook, daily_note_path)
@@ -445,11 +450,10 @@ def fetch_notebook(
                                 progress.advance(task)
                                 continue
 
-                            if confirm:
-                                if not typer.confirm(f"    Write to {filepath}?"):
-                                    console.print("    [yellow]Skipped by user[/yellow]")
-                                    progress.advance(task)
-                                    continue
+                            if confirm and not typer.confirm(f"    Write to {filepath}?"):
+                                console.print("    [yellow]Skipped by user[/yellow]")
+                                progress.advance(task)
+                                continue
 
                             # Write to file
                             try:
@@ -611,7 +615,7 @@ def scan_vault_cmd(
 
 @app.command("config")
 def show_config(
-    show: Annotated[
+    _show: Annotated[
         bool,
         typer.Option("--show", "-s", help="Show current configuration."),
     ] = False,

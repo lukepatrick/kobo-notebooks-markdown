@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kobo_md.kobo.models import Notebook, NotebookMetadata
+from kobo_md.kobo.models import Notebook
 
 
 def sanitize_filename(name: str) -> str:

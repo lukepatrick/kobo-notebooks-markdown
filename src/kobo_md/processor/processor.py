@@ -29,7 +29,11 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from kobo_md.kobo.models import Notebook, NotebookPage
-from kobo_md.obsidian.linker import LinkedText, insert_wikilinks, process_text_with_links
+from kobo_md.obsidian.linker import (
+    LinkedText,
+    insert_wikilinks,
+    process_text_with_links,
+)
 from kobo_md.obsidian.vault import VaultIndex, scan_vault
 from kobo_md.processor.llm import LLMProvider, ProcessedText, get_llm_provider
 

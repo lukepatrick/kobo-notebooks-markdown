@@ -2,14 +2,13 @@
 
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from kobo_md.kobo.models import ContentType, Notebook, NotebookMetadata, NotebookPage
 from kobo_md.obsidian import notebook_to_markdown
 from kobo_md.obsidian.linker import process_text_with_links
-from kobo_md.obsidian.vault import VaultIndex, scan_vault
+from kobo_md.obsidian.vault import scan_vault
 from kobo_md.obsidian.writer import write_notebook
 from kobo_md.processor.processor import NotebookProcessor, ProcessingResult
 
@@ -231,9 +230,11 @@ class TestVaultSafety:
         vault_path = tmp_path / "vault"
         vault_path.mkdir()
 
-        from kobo_md.cli import _show_write_preview
-        from rich.console import Console
         from io import StringIO
+
+        from rich.console import Console
+
+        from kobo_md.cli import _show_write_preview
 
         notebook = NotebookMetadata(
             id="test",
@@ -265,6 +266,7 @@ class TestDailyNotes:
     def test_get_daily_note_path(self, tmp_path: Path) -> None:
         """Test daily note path generation."""
         from datetime import datetime
+
         from kobo_md.obsidian.writer import get_daily_note_path
 
         vault_path = tmp_path / "vault"
@@ -282,9 +284,15 @@ class TestDailyNotes:
 
     def test_append_to_daily_note_creates_file(self, tmp_path: Path) -> None:
         """Test that append creates file if it doesn't exist."""
-        from kobo_md.obsidian.writer import append_to_daily_note
-        from kobo_md.kobo.models import ContentType, Notebook, NotebookMetadata, NotebookPage
         from datetime import datetime
+
+        from kobo_md.kobo.models import (
+            ContentType,
+            Notebook,
+            NotebookMetadata,
+            NotebookPage,
+        )
+        from kobo_md.obsidian.writer import append_to_daily_note
 
         vault_path = tmp_path / "vault"
         vault_path.mkdir()
@@ -319,9 +327,15 @@ class TestDailyNotes:
 
     def test_append_to_daily_note_appends_to_existing(self, tmp_path: Path) -> None:
         """Test that append adds to existing file."""
-        from kobo_md.obsidian.writer import append_to_daily_note
-        from kobo_md.kobo.models import ContentType, Notebook, NotebookMetadata, NotebookPage
         from datetime import datetime
+
+        from kobo_md.kobo.models import (
+            ContentType,
+            Notebook,
+            NotebookMetadata,
+            NotebookPage,
+        )
+        from kobo_md.obsidian.writer import append_to_daily_note
 
         vault_path = tmp_path / "vault" / "Daily"
         vault_path.mkdir(parents=True)

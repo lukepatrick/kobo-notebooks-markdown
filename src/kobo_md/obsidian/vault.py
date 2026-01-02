@@ -175,7 +175,7 @@ def scan_vault(vault_path: Path, exclude_dirs: list[str] | None = None) -> Vault
 def find_matching_notes(
     query: str,
     index: VaultIndex,
-    threshold: float = 0.8,
+    _threshold: float = 0.8,
 ) -> list[str]:
     """Find notes that match a query string.
 

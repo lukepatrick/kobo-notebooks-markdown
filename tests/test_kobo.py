@@ -2,8 +2,6 @@
 
 from datetime import datetime
 
-import pytest
-
 from kobo_md.kobo.models import ContentType, Notebook, NotebookMetadata, NotebookPage
 from kobo_md.kobo.parser import find_potential_wikilinks
 

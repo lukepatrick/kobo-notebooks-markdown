@@ -1,8 +1,8 @@
 """Obsidian markdown output formatting."""
 
 from kobo_md.obsidian.linker import (
-    LinkSuggestion,
     LinkedText,
+    LinkSuggestion,
     auto_link_from_vault,
     insert_wikilinks,
     process_text_with_links,
