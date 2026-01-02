@@ -1,5 +1,13 @@
 SHELL ?= /bin/bash
 
+# Use venv if it exists, otherwise use system Python
+VENV := $(if $(wildcard venv/bin/python),venv/bin/,)
+PYTHON := $(VENV)python
+PIP := $(VENV)pip
+PYTEST := $(VENV)pytest
+RUFF := $(VENV)ruff
+MYPY := $(VENV)mypy
+
 ################################################################################
 # Setup and Help                                                               #
 ################################################################################
@@ -16,45 +24,45 @@ help: ## This help.
 
 .PHONY: install
 install: ## Install development dependencies
-	python -m pip install --upgrade pip
-	pip install -e ".[dev]"
+	$(PYTHON) -m pip install --upgrade pip
+	$(PIP) install -e ".[dev]"
 
 .PHONY: install-ai
 install-ai: ## Install with AI features
-	python -m pip install --upgrade pip
-	pip install -e ".[dev,ai]"
+	$(PYTHON) -m pip install --upgrade pip
+	$(PIP) install -e ".[dev,ai]"
 
 .PHONY: lint
 lint: ## Run ruff linter
-	ruff check .
+	$(RUFF) check .
 
 .PHONY: lint-fix
 lint-fix: ## Run ruff linter with auto-fix
-	ruff check --fix .
+	$(RUFF) check --fix .
 
 .PHONY: format
 format: ## Run ruff formatter
-	ruff format .
+	$(RUFF) format .
 
 .PHONY: format-check
 format-check: ## Check formatting without changes
-	ruff format --check .
+	$(RUFF) format --check .
 
 .PHONY: test
 test: ## Run pytest
-	pytest
+	$(PYTEST)
 
 .PHONY: test-verbose
 test-verbose: ## Run pytest with verbose output
-	pytest -v
+	$(PYTEST) -v
 
 .PHONY: test-coverage
 test-coverage: ## Run pytest with coverage report
-	pytest --cov=src/kobo_md --cov-report=term-missing
+	$(PYTEST) --cov=src/kobo_md --cov-report=term-missing
 
 .PHONY: typecheck
 typecheck: ## Run mypy type checker
-	mypy src
+	$(MYPY) src
 
 ################################################################################
 # Build and Clean                                                              #
@@ -62,7 +70,7 @@ typecheck: ## Run mypy type checker
 
 .PHONY: build
 build: clean ## Build distribution packages
-	python -m build
+	$(PYTHON) -m build
 
 .PHONY: clean
 clean: ## Remove build artifacts
